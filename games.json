@@ -1,14 +1,8 @@
 [
     {
-        "id": "clicker",
-        "title": "Super Clicker",
-        "icon": "👆",
-        "path": "./games/clicker/index.html"
-    },
-    {
-        "id": "dodge",
-        "title": "Space Dodge",
-        "icon": "🚀",
-        "path": "./games/dodge/index.html"
+        "id": "EC",
+        "title": "Learn 4 Fun!",
+        "icon": "😄",
+        "path": "./games/MC/EC 1.8.html"
     }
 ]
