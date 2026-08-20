@@ -1,0 +1,14 @@
+[
+    {
+        "id": "clicker",
+        "title": "Super Clicker",
+        "icon": "👆",
+        "path": "./games/clicker/index.html"
+    },
+    {
+        "id": "dodge",
+        "title": "Space Dodge",
+        "icon": "🚀",
+        "path": "./games/dodge/index.html"
+    }
+]
