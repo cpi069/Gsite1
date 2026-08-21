@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medieval Arena</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Segoe UI', Tahoma, sans-serif; }
+        
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; /* Let clicks pass through to the game */
+            display: flex; flex-direction: column; justify-content: space-between;
+        }
+
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            width: 10px; height: 10px; background: white; border-radius: 50%;
+            transform: translate(-50%, -50%); opacity: 0.7;
+        }
+
+        .hud-text {
+            color: white; font-size: 24px; font-weight: bold; padding: 20px;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        #start-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.8); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; color: white; z-index: 10;
+        }
+
+        button {
+            padding: 15px 30px; font-size: 20px; cursor: pointer;
+            background: #ffaa00; border: none; border-radius: 5px; font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- User Interface -->
+    <div id="ui-layer">
+        <div class="hud-text" id="score-display">Defeated: 0</div>
+        <div id="crosshair"></div>
+        <div class="hud-text" id="health-display" style="text-align: center; color: #ff4444;">Health: 100</div>
+    </div>
+
+    <!-- Start / Game Over Screen -->
+    <div id="start-screen">
+        <h1 id="title-text" style="font-size: 50px; color: #ffaa00; margin-bottom: 10px;">Medieval Arena</h1>
+        <p style="margin-bottom: 30px;">WASD to move. Click to swing your sword.</p>
+        <button id="start-btn">Click to Start / Lock Mouse</button>
+    </div>
+
+    <!-- Import Three.js as an ES Module -->
+    <script type="module">
+        import * as THREE from 'https://cdn.skypack.dev/three@0.128.0';
+        import { PointerLockControls } from 'https://cdn.skypack.dev/three@0.128.0/examples/jsm/controls/PointerLockControls.js';
+
+        // --- Game Variables ---
+        let health = 100;
+        let score = 0;
+        let isAttacking = false;
+        let enemies = [];
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let prevTime = performance.now();
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+
+        // --- Scene Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue
+        scene.fog = new THREE.Fog(0x87CEEB, 0, 50); // Fog to hide the edge of the world
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.y = 2; // Player eye level
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // --- Lighting ---
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+        hemiLight.position.set(0, 200, 0);
+        scene.add(hemiLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(20, 20, 10);
+        scene.add(dirLight);
+
+        // --- Environment ---
+        // Floor
+        const floorGeo = new THREE.PlaneGeometry(100, 100);
+        const floorMat = new THREE.MeshLambertMaterial({ color: 0x3d5a24 }); // Grass color
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        // --- Player Weapon (The Sword) ---
+        const swordGeo = new THREE.BoxGeometry(0.1, 1.5, 0.2);
+        const swordMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.2 });
+        const sword = new THREE.Mesh(swordGeo, swordMat);
+        
+        // Attach sword to the camera so it moves with our view
+        sword.position.set(0.5, -0.5, -1); 
+        sword.rotation.x = Math.PI / 4;
+        camera.add(sword);
+        scene.add(camera);
+
+        // --- Controls ---
+        const controls = new PointerLockControls(camera, document.body);
+        const startScreen = document.getElementById('start-screen');
+        const startBtn = document.getElementById('start-btn');
+
+        startBtn.addEventListener('click', () => {
+            controls.lock();
+        });
+
+        controls.addEventListener('lock', () => {
+            startScreen.style.display = 'none';
+        });
+
+        controls.addEventListener('unlock', () => {
+            if (health > 0) {
+                startScreen.style.display = 'flex';
+                document.getElementById('title-text').innerText = "Paused";
+            }
+        });
+
+        // Keydown handlers for movement
+        document.addEventListener('keydown', (event) => {
+            switch (event.code) {
+                case 'ArrowUp': case 'KeyW': moveForward = true; break;
+                case 'ArrowLeft': case 'KeyA': moveLeft = true; break;
+                case 'ArrowDown': case 'KeyS': moveBackward = true; break;
+                case 'ArrowRight': case 'KeyD': moveRight = true; break;
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            switch (event.code) {
+                case 'ArrowUp': case 'KeyW': moveForward = false; break;
+                case 'ArrowLeft': case 'KeyA': moveLeft = false; break;
+                case 'ArrowDown': case 'KeyS': moveBackward = false; break;
+                case 'ArrowRight': case 'KeyD': moveRight = false; break;
+            }
+        });
+
+        // --- Combat Mechanics ---
+        document.addEventListener('mousedown', () => {
+            if (!controls.isLocked || isAttacking) return;
+            
+            // Swing animation
+            isAttacking = true;
+            let swingFrame = 0;
+            
+            const swingInterval = setInterval(() => {
+                swingFrame++;
+                sword.rotation.x -= 0.1; // Swing down
+                
+                if (swingFrame > 10) {
+                    clearInterval(swingInterval);
+                    // Hit detection
+                    checkHit();
+                    
+                    // Return sword to normal
+                    setTimeout(() => {
+                        sword.rotation.x = Math.PI / 4;
+                        isAttacking = false;
+                    }, 150);
+                }
+            }, 15);
+        });
+
+        function checkHit() {
+            // Check if any enemy is close enough and in front of us
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                const distance = camera.position.distanceTo(enemy.position);
+                
+                if (distance < 4) { // Melee range
+                    scene.remove(enemy);
+                    enemies.splice(i, 1);
+                    score++;
+                    document.getElementById('score-display').innerText = `Defeated: ${score}`;
+                }
+            }
+        }
+
+        // --- Enemy Spawner ---
+        function spawnEnemy() {
+            if (!controls.isLocked) return;
+
+            const enemyGeo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+            const enemyMat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+            const enemy = new THREE.Mesh(enemyGeo, enemyMat);
+
+            // Spawn in a random circle around the player
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 25 + Math.random() * 10;
+            enemy.position.set(
+                camera.position.x + Math.cos(angle) * radius,
+                0.75, // Half height so it sits on floor
+                camera.position.z + Math.sin(angle) * radius
+            );
+
+            scene.add(enemy);
+            enemies.push(enemy);
+        }
+
+        // Spawn a new enemy every 2 seconds
+        setInterval(spawnEnemy, 2000);
+
+        // --- Game Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (controls.isLocked) {
+                const time = performance.now();
+                const delta = (time - prevTime) / 1000;
+
+                // Physics/Movement
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize(); // Ensure consistent movement in all directions
+
+                if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta;
+
+                controls.moveRight(-velocity.x * delta);
+                controls.moveForward(-velocity.z * delta);
+
+                // Enemy AI (Move towards player)
+                enemies.forEach((enemy, index) => {
+                    enemy.lookAt(camera.position.x, enemy.position.y, camera.position.z);
+                    enemy.translateZ(3 * delta); // Move forward at speed 3
+
+                    // Damage Player if they touch
+                    if (camera.position.distanceTo(enemy.position) < 1.5) {
+                        health -= 1;
+                        document.getElementById('health-display').innerText = `Health: ${Math.floor(health)}`;
+                        scene.remove(enemy);
+                        enemies.splice(index, 1);
+
+                        if (health <= 0) {
+                            controls.unlock();
+                            document.getElementById('title-text').innerText = "Game Over";
+                            document.getElementById('title-text').style.color = "red";
+                            startBtn.innerText = "Refresh Page to Restart";
+                        }
+                    }
+                });
+
+                prevTime = time;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resizing
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start loop
+        animate();
+    </script>
+</body>
+</html>
