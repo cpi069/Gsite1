@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Breakout</title>
+    <style>
+        body {
+            margin: 0;
+            background: #0a0a12;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 0 30px rgba(0, 229, 255, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        canvas {
+            background: #10101c;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+<div id="gameContainer">
+    <canvas id="canvas" width="600" height="500"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+// --- Audio Synthesizer ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(freq, type = 'sine', duration = 0.1) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+// --- Game State ---
+let score = 0;
+let lives = 3;
+let gameOver = false;
+let gameWon = false;
+let shakeTime = 0;
+
+// Paddle
+const paddle = {
+    w: 100, h: 12, x: 250, y: 460, speed: 8, dx: 0, color: '#00e5ff'
+};
+
+// Ball
+const ball = {
+    x: 300, y: 440, r: 7, speed: 5, dx: 4, dy: -4, color: '#ff007f'
+};
+
+// Bricks
+const rowCount = 5, colCount = 8;
+const brickWidth = 65, brickHeight = 20, brickPadding = 7, offsetTop = 40, offsetLeft = 12;
+const colors = ['#ff0055', '#ff5500', '#ffcc00', '#00ff66', '#00e5ff'];
+const bricks = [];
+
+for (let r = 0; r < rowCount; r++) {
+    bricks[r] = [];
+    for (let c = 0; c < colCount; c++) {
+        bricks[r][c] = { x: 0, y: 0, status: 1, color: colors[r] };
+    }
+}
+
+// Particles
+let particles = [];
+function createParticles(x, y, color) {
+    for (let i = 0; i < 12; i++) {
+        particles.push({
+            x, y, color,
+            dx: (Math.random() - 0.5) * 6,
+            dy: (Math.random() - 0.5) * 6,
+            life: 20
+        });
+    }
+}
+
+// Controls
+document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'd') paddle.dx = paddle.speed;
+    if (e.key === 'ArrowLeft' || e.key === 'a') paddle.dx = -paddle.speed;
+});
+document.addEventListener('keyup', e => {
+    if (['ArrowRight', 'ArrowLeft', 'a', 'd'].includes(e.key)) paddle.dx = 0;
+});
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    paddle.x = e.clientX - rect.left - paddle.w / 2;
+});
+
+// Update
+function update() {
+    if (gameOver || gameWon) return;
+
+    // Move Paddle
+    paddle.x += paddle.dx;
+    paddle.x = Math.max(0, Math.min(canvas.width - paddle.w, paddle.x));
+
+    // Move Ball
+    ball.x += ball.dx;
+    ball.y += ball.dy;
+
+    // Wall Collision
+    if (ball.x - ball.r < 0 || ball.x + ball.r > canvas.width) {
+        ball.dx *= -1;
+        playSound(300, 'square', 0.05);
+    }
+    if (ball.y - ball.r < 0) {
+        ball.dy *= -1;
+        playSound(300, 'square', 0.05);
+    }
+
+    // Paddle Collision
+    if (ball.y + ball.r >= paddle.y && ball.x >= paddle.x && ball.x <= paddle.x + paddle.w && ball.dy > 0) {
+        let hitPoint = (ball.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2);
+        ball.dx = hitPoint * 5;
+        ball.dy = -Math.abs(ball.dy);
+        playSound(450, 'sine', 0.08);
+    }
+
+    // Bottom Wall (Life Lost)
+    if (ball.y + ball.r > canvas.height) {
+        lives--;
+        shakeTime = 10;
+        playSound(150, 'sawtooth', 0.2);
+        if (lives <= 0) {
+            gameOver = true;
+        } else {
+            ball.x = 300; ball.y = 440; ball.dx = 4; ball.dy = -4;
+            paddle.x = 250;
+        }
+    }
+
+    // Brick Collision
+    let activeBricks = 0;
+    for (let r = 0; r < rowCount; r++) {
+        for (let c = 0; c < colCount; c++) {
+            let b = bricks[r][c];
+            if (b.status === 1) {
+                activeBricks++;
+                let bx = c * (brickWidth + brickPadding) + offsetLeft;
+                let by = r * (brickHeight + brickPadding) + offsetTop;
+                b.x = bx; b.y = by;
+
+                if (ball.x > bx && ball.x < bx + brickWidth && ball.y > by && ball.y < by + brickHeight) {
+                    ball.dy *= -1;
+                    b.status = 0;
+                    score += 10;
+                    createParticles(bx + brickWidth / 2, by + brickHeight / 2, b.color);
+                    playSound(600 + (rowCount - r) * 100, 'triangle', 0.08);
+                }
+            }
+        }
+    }
+    if (activeBricks === 0) gameWon = true;
+
+    // Particles
+    particles.forEach((p, i) => {
+        p.x += p.dx; p.y += p.dy; p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+    });
+
+    if (shakeTime > 0) shakeTime--;
+}
+
+// Render
+function draw() {
+    ctx.save();
+    if (shakeTime > 0) ctx.translate((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw Bricks
+    for (let r = 0; r < rowCount; r++) {
+        for (let c = 0; c < colCount; c++) {
+            let b = bricks[r][c];
+            if (b.status === 1) {
+                ctx.fillStyle = b.color;
+                ctx.shadowColor = b.color;
+                ctx.shadowBlur = 8;
+                ctx.fillRect(b.x, b.y, brickWidth, brickHeight);
+                ctx.shadowBlur = 0;
+            }
+        }
+    }
+
+    // Draw Paddle
+    ctx.fillStyle = paddle.color;
+    ctx.shadowColor = paddle.color;
+    ctx.shadowBlur = 10;
+    ctx.fillRect(paddle.x, paddle.y, paddle.w, paddle.h);
+
+    // Draw Ball
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+    ctx.fillStyle = ball.color;
+    ctx.shadowColor = ball.color;
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.closePath();
+    ctx.shadowBlur = 0;
+
+    // Draw Particles
+    particles.forEach(p => {
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 3, 3);
+    });
+
+    // HUD
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px Segoe UI';
+    ctx.fillText(`Score: ${score}`, 15, 25);
+    ctx.fillText(`Lives: ${lives}`, canvas.width - 80, 25);
+
+    // Overlays
+    if (gameOver) {
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#ff0055';
+        ctx.font = 'bold 36px Segoe UI';
+        ctx.textAlign = 'center';
+        ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2);
+    } else if (gameWon) {
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#00e5ff';
+        ctx.font = 'bold 36px Segoe UI';
+        ctx.textAlign = 'center';
+        ctx.fillText('YOU WIN!', canvas.width / 2, canvas.height / 2);
+    }
+
+    ctx.restore();
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
