@@ -1,15 +1,8 @@
 [
     {
-        "id": "EC",
-        "title": "Learn 4 Fun!",
-        "icon": "😄",
-        "path": "./games/MC/EC 1.8.html"
-    }
-
-    {
     "id": "breakout",
     "title": "Neon Breakout",
     "icon": "🧱",
     "path": "./games/breakout/index.html"
-}
+    }
 ]
