@@ -5,4 +5,10 @@
     "icon": "🧱",
     "path": "./games/breakout/index.html"
     }
+    {
+    "id": "arena",
+    "title": "Medieval Arena",
+    "icon": "⚔️",
+    "path": "./games/arena/index.html"
+    }
 ]
